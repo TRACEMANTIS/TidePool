@@ -11,40 +11,47 @@ reporting pipeline, and frontend architecture.
 
 1. [System Overview](#system-overview)
 2. [Technology Stack](#technology-stack)
-3. [Data Flow](#data-flow)
-4. [Database Schema](#database-schema)
-5. [API Architecture](#api-architecture)
-6. [Security Architecture](#security-architecture)
-7. [Frontend Architecture](#frontend-architecture)
-8. [Email Engine](#email-engine)
-9. [Reporting Pipeline](#reporting-pipeline)
+3. [Deployment Topology](#deployment-topology)
+4. [Data Flow](#data-flow)
+5. [Database Schema](#database-schema)
+6. [API Architecture](#api-architecture)
+7. [Security Architecture](#security-architecture)
+8. [Frontend Architecture](#frontend-architecture)
+9. [Email Engine](#email-engine)
+10. [Reporting Pipeline](#reporting-pipeline)
 
 ---
 
 ## System Overview
 
 ```
-                                     INTERNET
-                                        |
-                                   [ TLS / nginx ]
-                                        |
-                    +-------------------+-------------------+
-                    |                                       |
-             [ Frontend SPA ]                         [ FastAPI ]
-             React 19 + Vite                          uvicorn x4
-             port 3000 (dev)                          port 8000
-             port 80 (prod/nginx)                         |
-                                        +-----------------+-----------------+
-                                        |                 |                 |
-                                   [ Celery          [ Celery         [ Redis 7 ]
-                                     Worker ]          Beat ]          3 databases:
-                                     x4 conc.         scheduler        db0: cache/counters
-                                        |                 |             db1: broker
-                                        |                 |             db2: results
-                                        +--------+--------+
-                                                 |
-                                          [ PostgreSQL 16 ]
-                                           tidepool database
+                    Recipients                          Operators
+                       |                                    |
+                 [ DNS: t.domain ]                  [ DNS: app.domain ]
+                       |                                    |
+               [ Tracking LB ]                      [ Dashboard LB ]
+               (public, internet)                   (restricted access)
+                       |                                    |
+            +----------+----------+              +----------+----------+
+            |          |          |              |                     |
+        [track-1] [track-2] [track-N]       [ FastAPI ]          [ Frontend SPA ]
+        tracking_app.py (stateless)         uvicorn x4           React 19 + Vite
+            |          |          |         port 8000             port 3000 (dev)
+            +----------+----------+---------+                    port 80 (prod/nginx)
+                       |                    |
+                       |     +--------------+-----------------+
+                       |     |              |                  |
+                       | [ Celery       [ Celery          [ Redis 7 ]
+                       |   Worker ]       Beat ]           3 databases:
+                       |   x4 conc.      scheduler         db0: cache/counters
+                       |      |              |              db1: broker
+                       |      |              |              db2: results
+                       |      +------+-------+
+                       |             |
+                       +------+------+
+                              |
+                       [ PostgreSQL 16 ]
+                        tidepool database
 
                     +-------------------+-------------------+
                     |                   |                   |
@@ -56,8 +63,9 @@ reporting pipeline, and frontend architecture.
                                         |
                                    opens / clicks
                                         |
-                                   [ Tracking Endpoints ]
-                                   /api/v1/tracking/*
+                              [ Tracking Tier ]
+                              /api/v1/tracking/*
+                              (dedicated instances)
                                         |
                                 +-------+-------+
                                 |               |
@@ -111,8 +119,56 @@ reporting pipeline, and frontend architecture.
 | **Routing** | React Router | 7.4+ | Client-side routing |
 | **Charts** | Recharts | 2.15+ | Campaign analytics charts |
 | **Page builder** | GrapesJS | 0.21+ | Visual landing page editor |
-| **Prod web server** | nginx | Alpine | Static file serving + reverse proxy |
-| **Containerization** | Docker + Compose | v2 | Orchestration |
+| **Prod web server** | nginx | Alpine | Static file serving, reverse proxy, tracking/dashboard domain routing |
+| **Containerization** | Docker + Compose | v2 | Local development and staging orchestration |
+| **Infrastructure** | Terraform | 1.5+ | AWS infrastructure provisioning (VPC, ECS, RDS, ElastiCache, ALB) |
+| **Container orchestration** | ECS Fargate | -- | Production container orchestration (serverless, per-tier scaling) |
+
+---
+
+## Deployment Topology
+
+In production, TidePool separates into distinct tiers to isolate
+recipient-facing tracking traffic from operator-facing dashboard traffic.
+
+### Why the split exists
+
+During active campaigns, tracking endpoints receive burst traffic as
+recipients open emails and click links.  If tracking and dashboard share
+the same application instances, a traffic spike from a large campaign can
+degrade the operator experience -- slow dashboard loads, delayed report
+generation, or API timeouts.  Separating the tiers ensures that:
+
+- Operators always have a responsive dashboard regardless of campaign load.
+- The tracking tier can scale independently (it is stateless and
+  horizontally scalable).
+- Security posture improves: the tracking load balancer is public-facing,
+  while the dashboard load balancer is access-restricted.
+
+### Tier communication
+
+All tiers share the same PostgreSQL database and Redis instance.  There
+is no direct service-to-service communication between tiers.
+
+- **Tracking tier** writes events to PostgreSQL (`tracking_events` table)
+  and pushes real-time counters to Redis.  It reads only the
+  `campaign_recipients` table (token lookup) and campaign configuration.
+- **Dashboard/API tier** reads from both PostgreSQL and Redis for
+  reporting and real-time monitoring.  It writes campaign configuration,
+  templates, address books, and other management data to PostgreSQL.
+- **Worker tier** reads tasks from the Redis broker (db1), queries
+  PostgreSQL for campaign and recipient data, and writes send results
+  back to both stores.
+- **Celery beat** (exactly one instance) writes periodic task messages to
+  the Redis broker.
+
+### Tracking application
+
+The tracking tier runs `tracking_app.py`, a minimal FastAPI application
+that mounts only the tracking router, health check, and essential
+middleware.  It does not include authentication, admin endpoints, or
+reporting routes.  This reduces the attack surface of the public-facing
+tier and keeps the container image lean.
 
 ---
 
@@ -186,6 +242,11 @@ Campaign (SCHEDULED)
 ```
 
 ### Tracking Flow
+
+**Note:** In production, tracking endpoints run as an independent service
+(`tracking_app.py`) on dedicated instances behind the tracking load
+balancer.  The data flow below is identical regardless of whether tracking
+runs as part of the full API or as the standalone tracking application.
 
 ```
 Recipient opens email / clicks link / submits form
@@ -608,7 +669,11 @@ The lockout state is stored in the `users` table (`failed_login_attempts`,
   Docker Compose port mapping.
 - **Production:** Two-stage Docker build. Stage 1: `node:20-alpine` runs
   `npm ci && npm run build`. Stage 2: `nginx:alpine` serves the static
-  `dist/` directory with SPA fallback routing.
+  `dist/` directory with SPA fallback routing.  In the production topology,
+  nginx also handles domain-based routing: requests to the tracking domain
+  are proxied to dedicated tracking instances (`tracking_app.py`), while
+  requests to the dashboard domain are proxied to the full API tier and
+  frontend.
 
 ### Code Organization
 

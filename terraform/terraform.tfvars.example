@@ -1,0 +1,80 @@
+# =============================================================================
+# TidePool -- Example Variable Values
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values.
+# Never commit terraform.tfvars to version control (it contains secrets).
+# =============================================================================
+
+# -- General ------------------------------------------------------------------
+
+project     = "tidepool"
+environment = "production"
+aws_region  = "us-east-1"
+
+# -- Networking ---------------------------------------------------------------
+
+vpc_cidr = "10.0.0.0/16"
+
+# -- DNS & TLS ----------------------------------------------------------------
+
+# Base domain -- must have a hosted zone in Route 53
+domain_name = "example.com"
+
+# Tracking endpoint -- public-facing, receives campaign recipient clicks.
+# Use a short, inconspicuous domain/subdomain.
+tracking_domain = "t.example.com"
+
+# Dashboard -- admin interface, restricted by security group CIDRs.
+dashboard_domain = "app.example.com"
+
+# ACM certificate ARN -- must cover both tracking_domain and dashboard_domain.
+# Use a wildcard cert (*.example.com) or a multi-domain cert.
+certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# -- Database (RDS PostgreSQL) ------------------------------------------------
+
+db_instance_class    = "db.r6g.large"  # 2 vCPU, 16 GiB RAM
+db_allocated_storage = 100              # GiB, autoscales up to 2x
+db_password          = "CHANGE_ME"      # Use a strong password; consider AWS Secrets Manager
+
+# -- Cache (ElastiCache Redis) ------------------------------------------------
+
+redis_node_type = "cache.r6g.large" # 2 vCPU, 13.07 GiB RAM
+
+# -- ECS Service Scaling ------------------------------------------------------
+
+# Tracking: scales aggressively for campaign blasts
+tracking_desired_count = 3
+tracking_min_count     = 2
+tracking_max_count     = 20
+
+# API: internal users only, modest scaling
+api_desired_count = 2
+
+# Workers: handle email dispatch, campaign processing
+worker_desired_count = 4
+
+# -- Container Images ---------------------------------------------------------
+
+# Tag applied to all service images (set by CI/CD pipeline)
+container_image_tag = "latest"
+
+# ECR base URL (account-level, without repository name)
+ecr_repository_url = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+
+# -- Email (SES) --------------------------------------------------------------
+
+# Domain verified in SES for sending simulation emails.
+# Must exit SES sandbox for production use (manual AWS console step).
+ses_sending_domain = "example.com"
+
+# -- Monitoring ---------------------------------------------------------------
+
+# Email address for CloudWatch alarm notifications
+alert_email = "ops-team@example.com"
+
+# -- Dashboard Access ---------------------------------------------------------
+
+# Restrict dashboard ALB to office/VPN CIDRs.
+# Default ["0.0.0.0/0"] allows all -- tighten for production.
+# dashboard_ingress_cidrs = ["203.0.113.0/24", "198.51.100.0/24"]

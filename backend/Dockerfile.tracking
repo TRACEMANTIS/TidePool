@@ -1,0 +1,33 @@
+FROM python:3.13-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# System dependencies -- only libpq for PostgreSQL client support.
+# Unlike the main Dockerfile, we do NOT need weasyprint dependencies
+# (libpango, libpangocairo, libgdk-pixbuf, libcairo, libffi) since the
+# tracking service never generates PDF reports.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies.
+# NOTE: This installs the full requirements.txt for simplicity (pip layer
+# caching makes this fast).  A future optimization would be a trimmed
+# requirements-tracking.txt containing only: fastapi, uvicorn, sqlalchemy,
+# asyncpg, redis, pydantic, pydantic-settings, jinja2, python-multipart.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.tracking_app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

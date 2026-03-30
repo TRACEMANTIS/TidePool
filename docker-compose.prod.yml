@@ -1,0 +1,185 @@
+# TidePool production-oriented compose file for single-host deployments.
+#
+# Separates tracking traffic from the admin dashboard so campaign bursts
+# do not impact the operator UI.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Scale tracking replicas for high-volume campaigns:
+#   docker compose -f docker-compose.prod.yml up -d --scale tracking=3
+#
+# Required environment variables (set in .env or shell):
+#   SECRET_KEY, ENCRYPTION_KEY, DB_PASSWORD
+#   TRACKING_DOMAIN  (e.g. t.example.com)
+#   DASHBOARD_DOMAIN (e.g. app.example.com)
+
+version: "3.9"
+
+services:
+  # -- Tracking service (lightweight, horizontally scalable) ------------------
+  tracking:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.tracking
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://tidepool:${DB_PASSWORD:-tidepool_dev}@postgres:5432/tidepool
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tidepool
+    # No host port mapping -- nginx routes traffic to this service.
+    # For direct access during debugging, uncomment:
+    # ports:
+    #   - "8001:8000"
+
+  # -- Admin API service ------------------------------------------------------
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://tidepool:${DB_PASSWORD:-tidepool_dev}@postgres:5432/tidepool
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+  # -- Celery worker ----------------------------------------------------------
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://tidepool:${DB_PASSWORD:-tidepool_dev}@postgres:5432/tidepool
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+  # -- Celery beat (periodic task scheduler) ----------------------------------
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://tidepool:${DB_PASSWORD:-tidepool_dev}@postgres:5432/tidepool
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+  # -- Frontend (React SPA served by nginx) -----------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+  # -- PostgreSQL -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tidepool
+      POSTGRES_USER: tidepool
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tidepool_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tidepool -d tidepool"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+  # -- Redis ------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+  # -- Nginx reverse proxy (entrypoint) --------------------------------------
+  # Routes tracking domain -> tracking service
+  # Routes dashboard domain -> api + frontend services
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - TRACKING_DOMAIN=${TRACKING_DOMAIN:-t.localhost}
+      - DASHBOARD_DOMAIN=${DASHBOARD_DOMAIN:-app.localhost}
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+      # Mount TLS certificates when available:
+      # - ./certs:/etc/nginx/certs:ro
+    command: >
+      sh -c "envsubst '$$TRACKING_DOMAIN $$DASHBOARD_DOMAIN'
+      < /etc/nginx/nginx.conf.template
+      > /etc/nginx/nginx.conf
+      && nginx -g 'daemon off;'"
+    depends_on:
+      - api
+      - tracking
+      - frontend
+    restart: unless-stopped
+    networks:
+      - tidepool
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  tidepool:
+    driver: bridge
