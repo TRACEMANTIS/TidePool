@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import logging
 
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 from jinja2 import BaseLoader, Environment
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import get_db
 from app.models.campaign import Campaign
 from app.models.landing_page import LandingPage, PageType
 from app.landing_pages.template_library import TemplateLibrary
@@ -163,6 +164,28 @@ class LandingPageServer:
         resolved.  Intentionally bland to avoid revealing platform details.
         """
         return HTMLResponse(content=_FALLBACK_HTML, status_code=200)
+
+
+# -- Public-facing router for serving landing pages to campaign targets ------
+
+router = APIRouter(prefix="/lp")
+
+_server_instance = LandingPageServer()
+
+
+@router.get("/{campaign_id}/{recipient_token}")
+async def serve_landing_page(
+    campaign_id: int,
+    recipient_token: str,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Serve the rendered landing page for a campaign target.
+
+    This endpoint is hit when a phishing click redirects the recipient
+    to the TidePool-hosted landing page.  No authentication is required
+    -- the composite campaign_id + recipient_token is the access key.
+    """
+    return await _server_instance.serve(campaign_id, recipient_token, db)
 
 
 # -- Fallback HTML ------------------------------------------------------------
