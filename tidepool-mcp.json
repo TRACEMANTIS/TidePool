@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "tidepool": {
+      "command": "python3",
+      "args": ["/home/svc/Desktop/TidePool/scripts/mcp_server.py"],
+      "env": {
+        "TIDEPOOL_URL": "http://localhost:8000",
+        "TIDEPOOL_API_KEY": "${TIDEPOOL_API_KEY}"
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+# --------------------------------------------------------------------------
+# TidePool -- Load Testing Docker Compose Overlay
+# --------------------------------------------------------------------------
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+#
+# Scale workers:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --scale worker=8
+# --------------------------------------------------------------------------
+
+services:
+  worker:
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info
+      --concurrency=8
+      --pool=prefork
+      -O fair
+      --prefetch-multiplier=4
+
+  postgres:
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c work_mem=64MB
+      -c max_connections=200
+      -c effective_cache_size=1GB
+      -c checkpoint_completion_target=0.9
+    shm_size: '1g'
+
+  redis:
+    command: >
+      redis-server
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no

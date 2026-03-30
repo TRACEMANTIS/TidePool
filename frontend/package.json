@@ -1,0 +1,33 @@
+{
+  "name": "tidepool-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.67.2",
+    "axios": "^1.7.9",
+    "grapesjs": "^0.21.0",
+    "grapesjs-blocks-basic": "^1.0.0",
+    "grapesjs-preset-webpage": "^1.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.4.0",
+    "recharts": "^2.15.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.3",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.1.3",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.4"
+  }
+}

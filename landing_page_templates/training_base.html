@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                         "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f4f8;
+            color: #1a2a3a;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .header {
+            width: 100%;
+            background-color: #1a5276;
+            color: #ffffff;
+            padding: 2rem 1rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        .header p {
+            margin-top: 0.5rem;
+            font-size: 0.95rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 720px;
+            width: 100%;
+            padding: 2rem 1.5rem;
+        }
+
+        .card {
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .notice {
+            border-left: 4px solid #2e86c1;
+            padding-left: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.05rem;
+            color: #1a3a5c;
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            color: #1a5276;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .red-flags-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .red-flags-list li {
+            position: relative;
+            padding: 0.6rem 0 0.6rem 1.75rem;
+            border-bottom: 1px solid #eef2f6;
+        }
+
+        .red-flags-list li:last-child {
+            border-bottom: none;
+        }
+
+        .red-flags-list li::before {
+            content: "!";
+            position: absolute;
+            left: 0;
+            top: 0.65rem;
+            width: 1.2rem;
+            height: 1.2rem;
+            background-color: #2e86c1;
+            color: #ffffff;
+            border-radius: 50%;
+            font-size: 0.75rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .resources-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .resources-list li {
+            padding: 0.5rem 0;
+        }
+
+        .resources-list a {
+            color: #2e86c1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .resources-list a:hover {
+            text-decoration: underline;
+            color: #1a5276;
+        }
+
+        .acknowledge-section {
+            text-align: center;
+            padding-top: 1rem;
+        }
+
+        .acknowledge-section p {
+            margin-bottom: 1rem;
+            color: #4a6a8a;
+            font-size: 0.95rem;
+        }
+
+        .btn-acknowledge {
+            display: inline-block;
+            background-color: #2e86c1;
+            color: #ffffff;
+            border: none;
+            padding: 0.8rem 2.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .btn-acknowledge:hover {
+            background-color: #1a5276;
+        }
+
+        .btn-acknowledge:disabled {
+            background-color: #a0b4c8;
+            cursor: default;
+        }
+
+        .success-message {
+            display: none;
+            background-color: #d4edda;
+            color: #155724;
+            padding: 1rem 1.5rem;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 500;
+            margin-top: 1rem;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 1.5rem 1rem;
+            font-size: 0.85rem;
+            color: #7a8a9a;
+        }
+
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 1.35rem;
+            }
+            .container {
+                padding: 1rem;
+            }
+            .card {
+                padding: 1.25rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ title }}</h1>
+        {% if campaign_name %}
+        <p>Security Awareness Program</p>
+        {% endif %}
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <div class="notice">
+                {{ message }}
+            </div>
+
+            {% if red_flags %}
+            <h2>What to Watch For</h2>
+            <p style="margin-bottom: 0.75rem; color: #4a6a8a; font-size: 0.95rem;">
+                The following indicators could have helped you identify this
+                message as a simulated phish:
+            </p>
+            <ul class="red-flags-list">
+                {% for flag in red_flags %}
+                <li>{{ flag }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+
+        {% if resources %}
+        <div class="card">
+            <h2>Additional Resources</h2>
+            <p style="margin-bottom: 0.75rem; color: #4a6a8a; font-size: 0.95rem;">
+                Review the following materials to strengthen your ability to
+                identify phishing attempts:
+            </p>
+            <ul class="resources-list">
+                {% for resource in resources %}
+                <li>
+                    <a href="{{ resource.url }}" target="_blank" rel="noopener noreferrer">
+                        {{ resource.title }}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="card acknowledge-section">
+            <p>
+                By clicking the button below, you confirm that you have reviewed
+                the information on this page.
+            </p>
+            <button
+                class="btn-acknowledge"
+                id="acknowledgeBtn"
+                onclick="submitAcknowledge()"
+            >
+                I Understand
+            </button>
+            <div class="success-message" id="successMsg">
+                Thank you. Your acknowledgment has been recorded.
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        This training page was generated by your organization's security
+        awareness program.
+    </div>
+
+    <script>
+        (function () {
+            "use strict";
+
+            var startTime = Date.now();
+            var acknowledgeUrl = "{{ acknowledge_url }}";
+            var submitted = false;
+
+            window.submitAcknowledge = function () {
+                if (submitted) return;
+
+                var btn = document.getElementById("acknowledgeBtn");
+                var msg = document.getElementById("successMsg");
+                var elapsed = Math.round((Date.now() - startTime) / 1000);
+
+                btn.disabled = true;
+                btn.textContent = "Submitting...";
+
+                var xhr = new XMLHttpRequest();
+                xhr.open("POST", acknowledgeUrl, true);
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState === 4) {
+                        submitted = true;
+                        btn.style.display = "none";
+                        msg.style.display = "block";
+                    }
+                };
+                xhr.send(JSON.stringify({ time_spent_seconds: elapsed }));
+            };
+        })();
+    </script>
+</body>
+</html>

