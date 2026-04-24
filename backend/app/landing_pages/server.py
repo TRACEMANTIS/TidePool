@@ -8,8 +8,9 @@ ready to capture credentials during a phishing simulation.
 from __future__ import annotations
 
 import logging
+import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import HTMLResponse
 from jinja2 import BaseLoader, Environment
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +22,21 @@ from app.landing_pages.template_library import TemplateLibrary
 
 logger = logging.getLogger(__name__)
 
+# Recipient tokens are issued as URL-safe base64 strings (32-64 chars).  Same
+# pattern used by the tracking router in app.api.tracking and phish_report.
+_RECIPIENT_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
+
 # Jinja2 environment for rendering custom/cloned HTML that is stored in the
 # database (as opposed to the file-backed built-in templates).
+#
+# autoescape is enabled to defend against reflected XSS when untrusted values
+# (e.g. the recipient_token path parameter) are interpolated into attributes
+# or text content.  Every shipped template uses variables only in those
+# contexts; any future template that intentionally renders HTML must mark the
+# value with the |safe filter.
 _string_env = Environment(
     loader=BaseLoader(),
-    autoescape=False,
+    autoescape=True,
     keep_trailing_newline=True,
 )
 
@@ -176,7 +187,7 @@ _server_instance = LandingPageServer()
 @router.get("/{campaign_id}/{recipient_token}")
 async def serve_landing_page(
     campaign_id: int,
-    recipient_token: str,
+    recipient_token: str = Path(..., min_length=32, max_length=64),
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     """Serve the rendered landing page for a campaign target.
@@ -184,7 +195,14 @@ async def serve_landing_page(
     This endpoint is hit when a phishing click redirects the recipient
     to the TidePool-hosted landing page.  No authentication is required
     -- the composite campaign_id + recipient_token is the access key.
+
+    ``recipient_token`` is strictly validated against the URL-safe base64
+    charset before any template rendering occurs.  Rejecting malformed
+    tokens at the path-param boundary prevents XSS-style injection into
+    attribute contexts of rendered landing-page HTML.
     """
+    if not _RECIPIENT_TOKEN_PATTERN.match(recipient_token):
+        raise HTTPException(status_code=404, detail="Not Found")
     return await _server_instance.serve(campaign_id, recipient_token, db)
 
 

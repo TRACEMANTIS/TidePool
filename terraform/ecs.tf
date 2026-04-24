@@ -102,6 +102,27 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_base" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# ECS resolves `secrets.valueFrom` references via the EXECUTION role (not the
+# task role) before the container starts.  Without this, injection of
+# SECRET_KEY / ENCRYPTION_KEY / DATABASE_URL from Secrets Manager fails with
+# AccessDeniedException and the container never runs.
+resource "aws_iam_role_policy" "ecs_execution_secrets" {
+  name = "${local.name_prefix}-execution-secrets-read"
+  role = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret",
+      ]
+      Resource = "arn:aws:secretsmanager:${var.aws_region}:*:secret:${local.name_prefix}-*"
+    }]
+  })
+}
+
 # ---------------------------------------------------------------------------
 # IAM -- Task Role (shared by all tasks)
 # ---------------------------------------------------------------------------
@@ -169,8 +190,13 @@ locals {
   }
 
   # DATABASE_URL pointing to the primary instance.
+  # - Scheme MUST be `postgresql+asyncpg://` because backend/app/database.py
+  #   uses SQLAlchemy's async engine.  A plain `postgresql://` scheme causes
+  #   `InvalidRequestError: The asyncio extension requires an async driver`.
+  # - var.db_password is URL-encoded so special characters (@:/#%?+) do not
+  #   corrupt the userinfo component.
   # For the replica, use aws_db_instance.replica.endpoint.
-  database_url = "postgresql://tidepool:${var.db_password}@${aws_db_instance.primary.endpoint}/tidepool"
+  database_url = "postgresql+asyncpg://tidepool:${urlencode(var.db_password)}@${aws_db_instance.primary.endpoint}/tidepool"
   redis_url    = "rediss://${aws_elasticache_replication_group.main.primary_endpoint_address}:6379/0"
 
   # Shared environment variables injected into every task.
@@ -180,6 +206,71 @@ locals {
     { name = "SES_SENDING_DOMAIN", value = var.ses_sending_domain },
     { name = "AWS_REGION", value = var.aws_region },
   ]
+
+  # Shared `secrets` block injected into every Python task.  backend/app/config.py
+  # declares SECRET_KEY and ENCRYPTION_KEY as required Pydantic fields with no
+  # defaults; without these the app raises ValidationError on import and the
+  # container crash-loops.  Values are pulled from Secrets Manager at task
+  # start by the execution role.
+  shared_secrets = [
+    {
+      name      = "SECRET_KEY"
+      valueFrom = aws_secretsmanager_secret.app_secret_key.arn
+    },
+    {
+      name      = "ENCRYPTION_KEY"
+      valueFrom = aws_secretsmanager_secret.app_encryption_key.arn
+    },
+  ]
+
+  # Healthcheck commands used by the Python services.  Using urllib avoids
+  # the need to install curl in the slim Python base image.  Any HTTP 2xx/3xx
+  # response is considered healthy; non-2xx raises HTTPError and urlopen exits
+  # non-zero, failing the check.
+  backend_healthcheck_cmd = [
+    "CMD-SHELL",
+    "python -c 'import urllib.request,sys;r=urllib.request.urlopen(\"http://127.0.0.1:8000/health\",timeout=3);sys.exit(0 if r.status==200 else 1)' || exit 1",
+  ]
+}
+
+# ---------------------------------------------------------------------------
+# Secrets Manager -- application secrets
+# ---------------------------------------------------------------------------
+# Stores SECRET_KEY and ENCRYPTION_KEY out of the ECS task definition JSON so
+# they do not appear in terraform state plaintext (still referenced by ARN)
+# and can be rotated without redeploying the task definitions.
+#
+# Name prefix `${local.name_prefix}-` matches the IAM policy resource pattern
+# on aws_iam_role.ecs_task / aws_iam_role.ecs_execution.
+
+resource "aws_secretsmanager_secret" "app_secret_key" {
+  name                    = "${local.name_prefix}-app-secret-key"
+  description             = "Application SECRET_KEY (JWT signing, session tokens)."
+  recovery_window_in_days = 7
+
+  tags = {
+    Name = "${local.name_prefix}-app-secret-key"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "app_secret_key" {
+  secret_id     = aws_secretsmanager_secret.app_secret_key.id
+  secret_string = var.app_secret_key
+}
+
+resource "aws_secretsmanager_secret" "app_encryption_key" {
+  name                    = "${local.name_prefix}-app-encryption-key"
+  description             = "Application ENCRYPTION_KEY (data-at-rest encryption)."
+  recovery_window_in_days = 7
+
+  tags = {
+    Name = "${local.name_prefix}-app-encryption-key"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "app_encryption_key" {
+  secret_id     = aws_secretsmanager_secret.app_encryption_key.id
+  secret_string = var.app_encryption_key
 }
 
 # ===========================================================================
@@ -194,8 +285,8 @@ resource "aws_ecs_task_definition" "tracking" {
   family                   = "${local.name_prefix}-tracking"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 1024  # 1 vCPU
-  memory                   = 2048  # 2 GB
+  cpu                      = 1024 # 1 vCPU
+  memory                   = 2048 # 2 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -218,6 +309,8 @@ resource "aws_ecs_task_definition" "tracking" {
       { name = "DATABASE_URL", value = local.database_url },
     ])
 
+    secrets = local.shared_secrets
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -228,7 +321,7 @@ resource "aws_ecs_task_definition" "tracking" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      command     = local.backend_healthcheck_cmd
       interval    = 15
       timeout     = 5
       retries     = 3
@@ -250,8 +343,8 @@ resource "aws_ecs_task_definition" "api" {
   family                   = "${local.name_prefix}-api"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 2048  # 2 vCPU
-  memory                   = 4096  # 4 GB
+  cpu                      = 2048 # 2 vCPU
+  memory                   = 4096 # 4 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -279,6 +372,8 @@ resource "aws_ecs_task_definition" "api" {
       { name = "DASHBOARD_DOMAIN", value = var.dashboard_domain },
     ])
 
+    secrets = local.shared_secrets
+
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -289,7 +384,7 @@ resource "aws_ecs_task_definition" "api" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      command     = local.backend_healthcheck_cmd
       interval    = 15
       timeout     = 5
       retries     = 3
@@ -311,8 +406,8 @@ resource "aws_ecs_task_definition" "worker" {
   family                   = "${local.name_prefix}-worker"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 2048  # 2 vCPU
-  memory                   = 4096  # 4 GB
+  cpu                      = 2048 # 2 vCPU
+  memory                   = 4096 # 4 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -329,6 +424,8 @@ resource "aws_ecs_task_definition" "worker" {
     environment = concat(local.shared_env, [
       { name = "DATABASE_URL", value = local.database_url },
     ])
+
+    secrets = local.shared_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -354,8 +451,8 @@ resource "aws_ecs_task_definition" "beat" {
   family                   = "${local.name_prefix}-beat"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 512   # 0.5 vCPU
-  memory                   = 1024  # 1 GB
+  cpu                      = 512  # 0.5 vCPU
+  memory                   = 1024 # 1 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -364,14 +461,22 @@ resource "aws_ecs_task_definition" "beat" {
     image     = local.images.api # Same image as API
     essential = true
 
+    # --schedule points at a world-writable path.  Without this flag Celery
+    # beat defaults to `./celerybeat-schedule` under WORKDIR /app, which is
+    # owned by root with mode 0755 in the backend image.  The container runs
+    # as non-root `appuser`, so the default path causes PermissionError on
+    # startup and every periodic task is starved.  Matches docker-compose.prod.yml.
     command = [
       "celery", "-A", "app.celery_app", "beat",
-      "--loglevel=info"
+      "--loglevel=info",
+      "--schedule=/tmp/celerybeat-schedule",
     ]
 
     environment = concat(local.shared_env, [
       { name = "DATABASE_URL", value = local.database_url },
     ])
+
+    secrets = local.shared_secrets
 
     logConfiguration = {
       logDriver = "awslogs"
@@ -397,8 +502,8 @@ resource "aws_ecs_task_definition" "frontend" {
   family                   = "${local.name_prefix}-frontend"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 512   # 0.5 vCPU
-  memory                   = 1024  # 1 GB
+  cpu                      = 512  # 0.5 vCPU
+  memory                   = 1024 # 1 GB
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
@@ -407,8 +512,11 @@ resource "aws_ecs_task_definition" "frontend" {
     image     = local.images.frontend
     essential = true
 
+    # The frontend image is built from nginx:alpine (frontend/Dockerfile)
+    # which listens on port 80.  Do NOT change this without also updating
+    # the Dockerfile's `listen` directive and `EXPOSE`.
     portMappings = [{
-      containerPort = 3000
+      containerPort = 80
       protocol      = "tcp"
     }]
 
@@ -425,8 +533,10 @@ resource "aws_ecs_task_definition" "frontend" {
       }
     }
 
+    # `nginx:alpine` ships wget (busybox) but not curl, so the healthcheck
+    # uses wget.  -q suppresses progress, -O- discards the body.
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      command     = ["CMD-SHELL", "wget -q -O- http://127.0.0.1:80/ >/dev/null || exit 1"]
       interval    = 15
       timeout     = 5
       retries     = 3
@@ -509,7 +619,7 @@ resource "aws_ecs_service" "api" {
     container_port   = 8000
   }
 
-  health_check_grace_period_seconds = 60
+  health_check_grace_period_seconds  = 60
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 
@@ -538,7 +648,7 @@ resource "aws_ecs_service" "worker" {
     assign_public_ip = false
   }
 
-  deployment_minimum_healthy_percent = 50  # Workers can tolerate partial availability
+  deployment_minimum_healthy_percent = 50 # Workers can tolerate partial availability
   deployment_maximum_percent         = 200
 
   tags = {
@@ -594,10 +704,10 @@ resource "aws_ecs_service" "frontend" {
   load_balancer {
     target_group_arn = aws_lb_target_group.frontend.arn
     container_name   = "frontend"
-    container_port   = 3000
+    container_port   = 80
   }
 
-  health_check_grace_period_seconds = 60
+  health_check_grace_period_seconds  = 60
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 

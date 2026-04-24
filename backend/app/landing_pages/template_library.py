@@ -103,9 +103,14 @@ class _TemplateFileLoader(BaseLoader):
 
 # Shared Jinja2 environment -- undefined variables render as empty strings
 # to avoid blowing up if optional variables are omitted.
+#
+# autoescape is enabled to defend against reflected XSS via interpolated
+# variables (recipient_token, company_name, etc.).  Every shipped template
+# uses variables only in attribute/text contexts; any future template that
+# intentionally renders HTML must mark the value with the |safe filter.
 _jinja_env = Environment(
     loader=_TemplateFileLoader(),
-    autoescape=False,  # HTML templates are pre-authored; no auto-escaping.
+    autoescape=True,
     keep_trailing_newline=True,
     undefined=__import__("jinja2").Undefined,
 )

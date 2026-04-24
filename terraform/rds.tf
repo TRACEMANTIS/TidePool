@@ -39,10 +39,18 @@ resource "aws_db_parameter_group" "main" {
   family = "postgres16"
 
   # shared_buffers: ~25% of instance memory (db.r6g.large = 16 GiB -> 4 GiB)
+  #
+  # RDS evaluates `{DBInstanceClassMemory/N}` to `memory_bytes / N`, and the
+  # `shared_buffers` parameter is expressed in 8 kB Postgres pages.  The
+  # AWS-default divisor of 32768 gives `memory_bytes / 32768 * 8192 bytes`
+  # = `memory_bytes / 4` bytes = 25% of RAM.
+  #
+  # Using `/4` here would set shared_buffers to `memory_bytes/4` *pages* =
+  # ~2048x host RAM, which RDS either rejects outright or causes Postgres
+  # to fail startup with "shared_buffers is too large".
   parameter {
     name  = "shared_buffers"
-    value = "{DBInstanceClassMemory/4}"
-    # Uses the RDS formula -- evaluates to ~25% of available RAM.
+    value = "{DBInstanceClassMemory/32768}"
   }
 
   # work_mem: allow heavier sorts/hashes for reporting queries
@@ -77,13 +85,13 @@ resource "aws_db_parameter_group" "main" {
 resource "aws_db_instance" "primary" {
   identifier = "${local.name_prefix}-primary"
 
-  engine               = "postgres"
-  engine_version       = "16"
-  instance_class       = var.db_instance_class
-  allocated_storage    = var.db_allocated_storage
+  engine                = "postgres"
+  engine_version        = "16"
+  instance_class        = var.db_instance_class
+  allocated_storage     = var.db_allocated_storage
   max_allocated_storage = var.db_allocated_storage * 2 # autoscaling ceiling
-  storage_type         = "gp3"
-  storage_encrypted    = true
+  storage_type          = "gp3"
+  storage_encrypted     = true
 
   db_name  = "tidepool"
   username = "tidepool"
@@ -97,7 +105,7 @@ resource "aws_db_instance" "primary" {
 
   # Backups
   backup_retention_period = 7
-  backup_window           = "03:00-04:00"       # UTC
+  backup_window           = "03:00-04:00" # UTC
   maintenance_window      = "sun:04:30-sun:05:30"
 
   # Deletion protection -- disable only for teardown

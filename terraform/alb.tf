@@ -153,8 +153,11 @@ resource "aws_lb" "dashboard" {
 # -- Target Group: frontend (default route) ----------------------------------
 
 resource "aws_lb_target_group" "frontend" {
-  name        = "${local.name_prefix}-frontend-tg"
-  port        = 3000
+  name = "${local.name_prefix}-frontend-tg"
+  # Must match the containerPort on aws_ecs_task_definition.frontend (nginx
+  # listens on 80).  Target type `ip` means ALB probes the task ENI at this
+  # port directly.
+  port        = 80
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"

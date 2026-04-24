@@ -35,7 +35,22 @@ certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-
 
 db_instance_class    = "db.r6g.large"  # 2 vCPU, 16 GiB RAM
 db_allocated_storage = 100              # GiB, autoscales up to 2x
-db_password          = "CHANGE_ME"      # Use a strong password; consider AWS Secrets Manager
+# Generate: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# URL-safe characters only -- the Terraform URL-encodes the value before
+# placing it in DATABASE_URL, but sticking to [A-Za-z0-9_-] avoids surprises.
+db_password          = "CHANGE_ME"
+
+# -- Application Secrets ------------------------------------------------------
+# Required by backend/app/config.py (Pydantic validates SECRET_KEY >= 32 chars
+# and ENCRYPTION_KEY non-empty).  Terraform stores these in AWS Secrets
+# Manager and injects them into every Python ECS task via `secrets.valueFrom`.
+#
+# Generate both with:
+#   python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+# ENCRYPTION_KEY can alternatively be a cryptography.fernet.Fernet.generate_key()
+# output if you want a canonical Fernet key.
+app_secret_key     = "CHANGE_ME_SECRET_KEY_AT_LEAST_32_CHARS"
+app_encryption_key = "CHANGE_ME_ENCRYPTION_KEY_AT_LEAST_32_CHARS"
 
 # -- Cache (ElastiCache Redis) ------------------------------------------------
 

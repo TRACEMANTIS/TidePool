@@ -8,8 +8,12 @@ traffic from campaign recipients does not impact the admin dashboard.
 What is included:
 - Tracking router (email opens, link clicks, form submissions)
 - Landing page server router (serves pages that clicked links lead to)
+- Phish-report router (recipient "Report Phishing" button endpoints)
+- Webhooks router (SES/SNS, Mailgun, SendGrid bounce/complaint callbacks)
 - SecurityHeadersMiddleware (basic security headers)
-- Inline 100KB request size limit (tracking payloads are tiny)
+- Inline 100KB request size limit for tracking submissions; webhook bodies
+  are allowed up to the default FastAPI limit since provider payloads can
+  be larger (SES SNS messages especially)
 - /health endpoint with Redis and DB connectivity checks
 
 What is intentionally excluded:
@@ -33,7 +37,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.database import init_db, close_db, async_session
 from app.api.tracking import router as tracking_router
+from app.api.webhooks import router as webhooks_router
 from app.landing_pages.server import router as landing_page_router
+from app.tracking.phish_report import router as phish_report_router
 
 
 # -- Security headers middleware ----------------------------------------------
@@ -62,19 +68,32 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 _MAX_TRACKING_BODY_BYTES = 100 * 1024  # 100 KB
 
 
+# Webhook payloads (e.g. SendGrid event batches) can legitimately be larger
+# than a tracking submission, so the tight 100KB cap is applied only to
+# tracking / landing-page routes.  Webhook routes fall back to a generous
+# 5MB ceiling, which still prevents obvious abuse but accommodates real
+# provider traffic.
+_MAX_WEBHOOK_BODY_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
 class TrackingSizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject requests whose Content-Length exceeds 100KB."""
+    """Enforce per-route request size limits on the tracking tier."""
 
     async def dispatch(self, request: Request, call_next):
         content_length = request.headers.get("content-length")
         if content_length is not None:
-            if int(content_length) > _MAX_TRACKING_BODY_BYTES:
+            path = request.url.path
+            if path.startswith("/api/v1/webhooks/"):
+                limit = _MAX_WEBHOOK_BODY_BYTES
+            else:
+                limit = _MAX_TRACKING_BODY_BYTES
+            if int(content_length) > limit:
                 return JSONResponse(
                     status_code=413,
                     content={
                         "detail": (
                             f"Request body too large. "
-                            f"Maximum allowed: {_MAX_TRACKING_BODY_BYTES} bytes."
+                            f"Maximum allowed: {limit} bytes."
                         )
                     },
                 )
@@ -141,6 +160,19 @@ def create_tracking_app() -> FastAPI:
     # -- Routers --------------------------------------------------------------
     # Tracking endpoints: /api/v1/t/o/{id}, /api/v1/t/c/{id}, /api/v1/t/s/{id}
     app.include_router(tracking_router, prefix="/api/v1", tags=["tracking"])
+
+    # Phish-report endpoints: /api/v1/t/report/{tracking_id} and
+    # /api/v1/t/report-button/{tracking_id}.  Must be served from the
+    # public tracking tier because the dashboard ALB is SG-restricted to
+    # operator CIDRs and recipients cannot reach it.
+    app.include_router(phish_report_router, prefix="/api/v1", tags=["tracking"])
+
+    # Webhook receivers: /api/v1/webhooks/{ses,mailgun,sendgrid}.  Must be
+    # served from the public tracking tier because provider callback IPs
+    # (SNS, Mailgun, SendGrid) will not be in the dashboard ALB's allow
+    # list.  Each endpoint performs provider-specific signature
+    # verification, so no network-level auth is required.
+    app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks"])
 
     # Landing page server: /lp/{campaign_id}/{recipient_token}
     app.include_router(landing_page_router, tags=["landing-pages"])

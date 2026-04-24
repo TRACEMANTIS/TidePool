@@ -67,9 +67,43 @@ variable "db_allocated_storage" {
 }
 
 variable "db_password" {
-  description = "Master password for the RDS PostgreSQL instance."
+  description = "Master password for the RDS PostgreSQL instance.  Generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'` to guarantee URL-safe characters."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(var.db_password) >= 16
+    error_message = "db_password must be at least 16 characters."
+  }
+}
+
+# -- Application Secrets ------------------------------------------------------
+# SECRET_KEY and ENCRYPTION_KEY are required by backend/app/config.py and are
+# injected into every Python ECS task via Secrets Manager.  Both should be
+# generated with `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`
+# and rotated on a cadence that matches the organisation's key-management
+# policy.
+
+variable "app_secret_key" {
+  description = "Application SECRET_KEY (JWT signing, session tokens).  Minimum 32 characters.  Injected into all Python ECS tasks via Secrets Manager."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.app_secret_key) >= 32
+    error_message = "app_secret_key must be at least 32 characters."
+  }
+}
+
+variable "app_encryption_key" {
+  description = "Application ENCRYPTION_KEY (data-at-rest encryption of sensitive fields).  Must be a Fernet-compatible urlsafe base64 key (44 chars including trailing '=')."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.app_encryption_key) >= 32
+    error_message = "app_encryption_key must be at least 32 characters."
+  }
 }
 
 # -- Cache (ElastiCache) ------------------------------------------------------
